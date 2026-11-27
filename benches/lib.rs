@@ -1,6 +1,10 @@
 //! Benchmarks for the Turso engine. The benchmarks are the bench targets
 //! of this crate; the library holds code they share.
 
+use std::hint::black_box;
+use std::sync::Arc;
+use turso_core::{Connection, Database, Statement, StepResult};
+
 /// Number of calls in one CodSpeed measurement of a divan benchmark.
 #[cfg(feature = "codspeed")]
 const CODSPEED_BATCH: usize = 100;
@@ -77,4 +81,46 @@ impl<'a, 'b, I, G: FnMut() -> I> BencherWithInputs<'a, 'b, G> {
             .with_inputs(self.gen_input)
             .bench_local_values(benched);
     }
+}
+
+/// Steps `stmt` to the end, reading every row, then resets it so it can run
+/// again. Returns the number of rows.
+#[inline]
+pub fn drain(db: &Database, stmt: &mut Statement) -> usize {
+    let mut rows = 0;
+    loop {
+        match stmt.step().unwrap() {
+            StepResult::Row => {
+                black_box(stmt.row());
+                rows += 1;
+            }
+            StepResult::IO | StepResult::Yield | StepResult::Sleep { .. } => db.io.step().unwrap(),
+            StepResult::Done => break,
+            StepResult::Interrupt | StepResult::Busy => unreachable!(),
+        }
+    }
+    stmt.reset().unwrap();
+    rows
+}
+
+/// Prepares `sql` and runs it with [`drain`].
+#[inline]
+pub fn execute(db: &Database, conn: &Arc<Connection>, sql: &str) {
+    let mut stmt = conn.prepare(sql).unwrap();
+    drain(db, &mut stmt);
+}
+
+/// Steps `stmt` to the end, skipping its rows. Unlike [`drain`], it returns
+/// errors instead of panicking and does not reset `stmt`.
+#[inline]
+pub fn run_to_completion(stmt: &mut Statement, db: &Database) -> turso_core::Result<()> {
+    loop {
+        match stmt.step()? {
+            StepResult::IO | StepResult::Yield | StepResult::Sleep { .. } => db.io.step()?,
+            StepResult::Done => break,
+            StepResult::Row => {}
+            StepResult::Interrupt | StepResult::Busy => panic!("Unexpected step result"),
+        }
+    }
+    Ok(())
 }

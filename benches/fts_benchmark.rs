@@ -22,6 +22,7 @@ use codspeed_criterion_compat::{
 
 use std::sync::Arc;
 use tempfile::TempDir;
+use turso_benches::run_to_completion;
 use turso_core::{
     ConnectOpts, Database, DatabaseOpts, OpenFlags, PlatformIO, SessionRole, StepResult,
 };
@@ -45,26 +46,6 @@ macro_rules! iter_custom_or_iter {
             $body
         })
     };
-}
-
-/// Helper to execute a statement to completion, stepping through IO.
-fn run_to_completion(
-    stmt: &mut turso_core::Statement,
-    db: &Arc<Database>,
-) -> turso_core::Result<()> {
-    loop {
-        match stmt.step()? {
-            StepResult::IO | StepResult::Yield | StepResult::Sleep { .. } => {
-                db.io.step()?;
-            }
-            StepResult::Done => break,
-            StepResult::Row => {}
-            StepResult::Interrupt | StepResult::Busy => {
-                panic!("Unexpected step result");
-            }
-        }
-    }
-    Ok(())
 }
 
 /// Helper to step a statement and count result rows.

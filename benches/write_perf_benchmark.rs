@@ -20,7 +20,8 @@ use codspeed_criterion_compat::{
 
 use std::sync::Arc;
 use tempfile::TempDir;
-use turso_core::{ConnectOpts, Database, PlatformIO, SessionRole, StepResult};
+use turso_benches::run_to_completion;
+use turso_core::{ConnectOpts, Database, PlatformIO, SessionRole};
 
 #[cfg(not(target_family = "wasm"))]
 #[global_allocator]
@@ -41,26 +42,6 @@ macro_rules! iter_custom_or_iter {
             $body
         })
     };
-}
-
-/// Helper to execute a statement to completion
-fn run_to_completion(
-    stmt: &mut turso_core::Statement,
-    db: &Arc<Database>,
-) -> turso_core::Result<()> {
-    loop {
-        match stmt.step()? {
-            StepResult::IO | StepResult::Yield | StepResult::Sleep { .. } => {
-                db.io.step()?;
-            }
-            StepResult::Done => break,
-            StepResult::Row => {}
-            StepResult::Interrupt | StepResult::Busy => {
-                panic!("Unexpected step result");
-            }
-        }
-    }
-    Ok(())
 }
 
 /// Helper to setup a limbo database with the given schema

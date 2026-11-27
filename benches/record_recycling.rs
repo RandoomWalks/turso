@@ -8,10 +8,8 @@
 use divan::{black_box, AllocProfiler};
 use mimalloc::MiMalloc;
 use std::sync::Arc;
-use turso_benches::Bencher;
-use turso_core::{
-    ConnectOpts, Connection, Database, MemoryIO, SessionRole, Statement, StepResult, Value,
-};
+use turso_benches::{drain, execute, Bencher};
+use turso_core::{ConnectOpts, Connection, Database, MemoryIO, SessionRole, StepResult, Value};
 use turso_sqlite::SqliteDialect;
 
 #[global_allocator]
@@ -40,25 +38,6 @@ fn open_database(mvcc: bool) -> (Arc<Database>, Arc<Connection>) {
         execute(&db, &conn, "PRAGMA journal_mode = 'mvcc'");
     }
     (db, conn)
-}
-
-fn drain(db: &Database, stmt: &mut Statement) {
-    loop {
-        match stmt.step().unwrap() {
-            StepResult::Row => {
-                black_box(stmt.row());
-            }
-            StepResult::IO | StepResult::Yield | StepResult::Sleep { .. } => db.io.step().unwrap(),
-            StepResult::Done => break,
-            StepResult::Interrupt | StepResult::Busy => unreachable!(),
-        }
-    }
-    stmt.reset().unwrap();
-}
-
-fn execute(db: &Database, conn: &Arc<Connection>, sql: &str) {
-    let mut stmt = conn.prepare(sql).unwrap();
-    drain(db, &mut stmt);
 }
 
 fn seed_database(mvcc: bool) -> (Arc<Database>, Arc<Connection>) {

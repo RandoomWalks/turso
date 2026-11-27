@@ -4,10 +4,8 @@ use criterion::{black_box, criterion_group, criterion_main, Criterion};
 #[cfg(feature = "codspeed")]
 use codspeed_criterion_compat::{black_box, criterion_group, criterion_main, Criterion};
 use std::sync::Arc;
-use turso_core::{
-    ConnectOpts, Connection, Database, MemoryIO, PlatformIO, SessionRole, Statement, StepResult,
-    Value,
-};
+use turso_benches::drain;
+use turso_core::{ConnectOpts, Connection, Database, MemoryIO, PlatformIO, SessionRole, Value};
 use turso_sqlite::SqliteDialect;
 
 // Title: JSONB Function Benchmarking
@@ -1078,11 +1076,8 @@ fn bench_json_functions(criterion: &mut Criterion) {
     for (label, sql) in queries {
         group.bench_function(label, |b| {
             let mut stmt = conn.prepare(&sql).unwrap();
-            assert!(
-                run_to_completion(&db, &mut stmt) > 0,
-                "{label} should give back rows"
-            );
-            b.iter(|| run_to_completion(&db, &mut stmt));
+            assert!(drain(&db, &mut stmt) > 0, "{label} should give back rows");
+            b.iter(|| drain(&db, &mut stmt));
         });
     }
     group.finish();
@@ -1144,7 +1139,7 @@ fn bench_json_scan(criterion: &mut Criterion) {
 
             group.bench_function("Limbo", |b| {
                 let mut stmt = conn.prepare(query).unwrap();
-                b.iter(|| run_to_completion(&db, &mut stmt));
+                b.iter(|| drain(&db, &mut stmt));
             });
 
             if let Some(sqlite_conn) = &sqlite_conn {
@@ -1315,7 +1310,7 @@ fn load_scan_docs(db: &Database, conn: &Arc<Connection>, docs: &[String]) {
         insert
             .bind_at(1usize.try_into().unwrap(), Value::build_text(doc.clone()))
             .unwrap();
-        run_to_completion(db, &mut insert);
+        drain(db, &mut insert);
     }
     conn.execute("COMMIT").unwrap();
     conn.execute("INSERT INTO docs_jsonb SELECT id, jsonb(doc) FROM docs_text")
@@ -1342,26 +1337,6 @@ fn load_sqlite_scan_docs(docs: &[String]) -> rusqlite::Connection {
     conn.execute_batch("COMMIT; INSERT INTO docs_jsonb SELECT id, jsonb(doc) FROM docs_text;")
         .unwrap();
     conn
-}
-
-/// Steps `stmt` until it is done, resets it and returns the number of rows.
-fn run_to_completion(db: &Database, stmt: &mut Statement) -> usize {
-    let mut rows = 0;
-    loop {
-        match stmt.step().unwrap() {
-            StepResult::Row => {
-                black_box(stmt.row());
-                rows += 1;
-            }
-            StepResult::IO | StepResult::Yield | StepResult::Sleep { .. } => {
-                db.io.step().unwrap();
-            }
-            StepResult::Done => break,
-            StepResult::Interrupt | StepResult::Busy => unreachable!(),
-        }
-    }
-    stmt.reset().unwrap();
-    rows
 }
 
 criterion_group! {

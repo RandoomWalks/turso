@@ -19,7 +19,7 @@
 use divan::{black_box, AllocProfiler};
 use mimalloc::MiMalloc;
 use std::sync::Arc;
-use turso_benches::Bencher;
+use turso_benches::{drain, execute, Bencher};
 use turso_core::{
     ConnectOpts, Connection, Database, MemoryIO, SessionRole, Statement, StepResult, Value,
 };
@@ -191,30 +191,7 @@ fn assert_plan(db: &Database, conn: &Arc<Connection>, sql: &str, expected: &str)
     assert_eq!(plan, [expected], "query plan of {sql}");
 }
 
-fn execute(db: &Database, conn: &Arc<Connection>, sql: &str) {
-    let mut stmt = conn.prepare(sql).unwrap();
-    drain(db, &mut stmt);
-}
-
 fn bind_int(stmt: &mut Statement, index: usize, value: i64) {
     stmt.bind_at(index.try_into().unwrap(), Value::from_i64(value))
         .unwrap();
-}
-
-/// Steps `stmt` to the end, resets it and returns the number of rows.
-fn drain(db: &Database, stmt: &mut Statement) -> usize {
-    let mut rows = 0;
-    loop {
-        match stmt.step().unwrap() {
-            StepResult::Row => {
-                black_box(stmt.row());
-                rows += 1;
-            }
-            StepResult::IO | StepResult::Yield | StepResult::Sleep { .. } => db.io.step().unwrap(),
-            StepResult::Done => break,
-            StepResult::Interrupt | StepResult::Busy => unreachable!(),
-        }
-    }
-    stmt.reset().unwrap();
-    rows
 }

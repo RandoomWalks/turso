@@ -13,15 +13,14 @@
 //! Run:  cargo bench -p turso_core --bench count_benchmark
 
 #[cfg(feature = "codspeed")]
-use codspeed_criterion_compat::{
-    black_box, criterion_group, criterion_main, BenchmarkId, Criterion,
-};
+use codspeed_criterion_compat::{criterion_group, criterion_main, BenchmarkId, Criterion};
 #[cfg(not(feature = "codspeed"))]
-use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion};
+use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion};
 
 use std::sync::Arc;
 use std::time::Duration;
 use tempfile::TempDir;
+use turso_benches::drain;
 use turso_core::{ConnectOpts, Database, PlatformIO, SessionRole, StepResult};
 use turso_sqlite::SqliteDialect;
 
@@ -78,22 +77,6 @@ fn seed_db(n: usize) -> TempDir {
     dir
 }
 
-fn drain_turso(db: &Database, stmt: &mut turso_core::Statement) {
-    loop {
-        match stmt.step().unwrap() {
-            StepResult::Row => {
-                black_box(stmt.row());
-            }
-            StepResult::IO | StepResult::Yield | StepResult::Sleep { .. } => {
-                db.io.step().unwrap();
-            }
-            StepResult::Done => break,
-            StepResult::Interrupt | StepResult::Busy => unreachable!(),
-        }
-    }
-    stmt.reset().unwrap();
-}
-
 #[turso_macros::codspeed_criterion_benchmark]
 fn bench_count(criterion: &mut Criterion) {
     let dir = seed_db(N);
@@ -124,7 +107,7 @@ fn bench_count(criterion: &mut Criterion) {
         }
         group.bench_with_input(BenchmarkId::new(*label, N), &N, |b, _| {
             let mut stmt = conn.prepare(sql).unwrap();
-            b.iter(|| drain_turso(&db, &mut stmt));
+            b.iter(|| drain(&db, &mut stmt));
         });
     }
     group.finish();
